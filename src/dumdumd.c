@@ -50,7 +50,8 @@ static void usage(void) {
         "                Using both UDP and TCP if none of the above options are used\n"
         "  -A            Use SO_REUSEADDR on sockets\n"
         "  -R            Use SO_REUSEPORT on sockets\n"
-        "  -h            Print this help and exit\n",
+        "  -h            Print this help and exit\n"
+        "  -V            Print version and exit\n",
         program_name
     );
 }
@@ -161,7 +162,7 @@ int main(int argc, char* argv[]) {
         program_name = argv[0];
     }
 
-    while ((opt = getopt(argc, argv, "utARh")) != -1) {
+    while ((opt = getopt(argc, argv, "utARhV")) != -1) {
         switch (opt) {
             case 'u':
                 use_udp = 1;
@@ -181,6 +182,10 @@ int main(int argc, char* argv[]) {
 
             case 'h':
                 usage();
+                return 0;
+
+            case 'V':
+                version();
                 return 0;
 
             default:
