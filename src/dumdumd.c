@@ -26,9 +26,20 @@
 #include <netdb.h>
 #include <ev.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <stdlib.h>
 
 char* program_name = 0;
-size_t pkts_drop = 0;
+#define STATS_INIT { 0, 0, 0, 0, 0 }
+struct stats {
+    size_t accept;
+    size_t accdrop;
+    size_t conns;
+    size_t bytes;
+    size_t pkts;
+};
+struct stats _stats0 = STATS_INIT;
+struct stats _stats = STATS_INIT;
 
 static void usage(void) {
     printf(
@@ -48,13 +59,94 @@ static void version(void) {
     printf("%s version " PACKAGE_VERSION "\n", program_name);
 }
 
-static void stats_cb(EV_P_ ev_timer *w, int revents) {
-    printf("dropped: %lu\n", pkts_drop);
-    pkts_drop = 0;
+static void stats_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+    printf("accept(drop): %lu ( %lu ) conns: %lu pkts: %lu bytes %lu\n",
+        _stats.accept,
+        _stats.accdrop,
+        _stats.conns,
+        _stats.pkts,
+        _stats.bytes
+    );
+    _stats = _stats0;
+}
+
+static char recvbuf[4*1024*1024];
+
+static void recv_cb(struct ev_loop *loop, ev_io *w, int revents) {
+    int fd = w->data - (void*)0, newfd;
+    ssize_t bytes;
+
+    for (;;) {
+        bytes = recv(fd, recvbuf, sizeof(recvbuf), 0);
+        if (bytes < 0) {
+            perror("recv()");
+            shutdown(fd, SHUT_RDWR);
+        }
+        if (bytes < 1) {
+            ev_io_stop(loop, w);
+            close(fd);
+            free(w); /* TODO: Delayed free maybe? */
+            return;
+        }
+        _stats.pkts++;
+        _stats.bytes += bytes;
+        if (bytes < sizeof(recvbuf)) {
+            return;
+        }
+    }
+}
+
+static void accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
+    int fd = w->data - (void*)0, newfd, flags;
+    struct sockaddr addr;
+    socklen_t len;
+
+    for (;;) {
+        memset(&addr, 0, sizeof(struct sockaddr));
+        len = sizeof(struct sockaddr);
+        newfd = accept(fd, &addr, &len);
+        _stats.accept++;
+        if (newfd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                return;
+            fprintf(stderr, "accept(%d) ", fd);
+            perror("");
+            ev_io_stop(loop, w);
+            close(fd);
+            free(w); /* TODO: Delayed free maybe? */
+            _stats.accdrop++;
+            return;
+        }
+
+        if ((flags = fcntl(newfd, F_GETFL)) == -1
+            || fcntl(newfd, F_SETFL, flags | O_NONBLOCK))
+        {
+            perror("fcntl()");
+            shutdown(newfd, SHUT_RDWR);
+            close(newfd);
+            _stats.accdrop++;
+            return;
+        }
+
+        {
+            ev_io* io = calloc(1, sizeof(ev_io));
+            if (!io) {
+                perror("calloc()");
+                shutdown(newfd, SHUT_RDWR);
+                close(newfd);
+                _stats.accdrop++;
+                return;
+            }
+            io->data += newfd;
+            ev_io_init(io, &recv_cb, newfd, EV_READ);
+            ev_io_start(loop, io);
+            _stats.conns++;
+        }
+    }
 }
 
 int main(int argc, char* argv[]) {
-    int opt, use_udp = 0, use_tcp = 0, reuse_addr, reuse_port = 0;
+    int opt, use_udp = 0, use_tcp = 0, reuse_addr = 0, reuse_port = 0;
     struct addrinfo* addrinfo = 0;
     struct addrinfo hints;
     const char* node = 0;
@@ -130,7 +222,7 @@ int main(int argc, char* argv[]) {
 
     {
         struct addrinfo* ai = addrinfo;
-        int fd, optval;
+        int fd, optval, flags;
 
         for (; ai; ai = ai->ai_next) {
             switch (ai->ai_socktype) {
@@ -179,11 +271,43 @@ int main(int argc, char* argv[]) {
             }
 #endif
 
+            if ((flags = fcntl(fd, F_GETFL)) == -1) {
+                perror("fcntl(F_GETFL)");
+                return 1;
+            }
+            if (fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
+                perror("fcntl(F_SETFL)");
+                return 1;
+            }
+
             if (bind(fd, ai->ai_addr, ai->ai_addrlen) < 0) {
                 perror("bind()");
                 return 1;
             }
-            close(fd);
+            if (ai->ai_socktype == SOCK_STREAM && listen(fd, 10)) {
+                perror("listen()");
+                return 1;
+            }
+
+            {
+                char h[NI_MAXHOST], s[NI_MAXSERV];
+                ev_io* io = calloc(1, sizeof(ev_io));
+                if (!io) {
+                    perror("calloc()");
+                    return 1;
+                }
+                io->data += fd;
+                ev_io_init(io, ai->ai_socktype == SOCK_STREAM ? &accept_cb : &recv_cb, fd, EV_READ);
+                ev_io_start(loop, io);
+
+                if (getnameinfo(ai->ai_addr, ai->ai_addrlen, h, NI_MAXHOST, s, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV)) {
+                    perror("getnameinfo()");
+                    h[0] = 0;
+                    s[0] = 0;
+                }
+
+                printf("listen: %d fam: %d type: %d proto: %d host: %s service: %s\n", fd, ai->ai_family, ai->ai_socktype, ai->ai_protocol, h, s);
+            }
         }
     }
 
