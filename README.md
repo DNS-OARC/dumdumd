@@ -6,7 +6,7 @@ High performance UDP/TCP server that... just drops everything you send to it
 
 ## Requirements
 
-- libev
+- libev-dev || libuv1-dev
 
 ## Build
 
