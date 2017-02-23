@@ -1,20 +1,21 @@
 language: c
 dist: trusty
 compiler:
-  - clang
   - gcc
 before_install:
   - sudo add-apt-repository ppa:ondrej/apache2 -y
   - sudo apt-get -qq update
   - sudo apt-get install -y libev-dev libuv1-dev
-install: ./autogen.sh
-script:
-  - ./configure
-  - make dist
-  - tar zxvf *.tar.gz
-  - cd dumdumd-*[0-9]
-  - mkdir build
-  - cd build
-  - ../configure
-  - make
-  - src/dumdumd -h
+env:
+  global:
+   - secure: "d9CGWt7eR/sxW4uM/83tSqqPRWoEnju8KVz0bHIrcH+J2acqiyeOdgU530UM6k5JN3qaOIFkxYFjv+jkTEHKV/PGb917Y9fxzq49o7DurLh6xfEFMPTjWjRZf/d40W/jI+zuyXbmdoVPrJO64TPqIBoyaSnLb6EzHsYTfs30PyRl6CtmOBViN/5ShQtYx5zkxgGIM4uwTc5H13gCYI+AOETOVZ+Z/WusD3GD0cta+hVtrNkYwAYi4YR49CT/1R/T/f/exJZEmV0bvv2ionOX31OJ9MXezki8Rbezjw8r2I0zEb3n3KRjCGScNgyItmwRSGeJh/TJcsyxAADVb7cFKBkzfVTplWy6JSSDL3jfCcplJT8/+GQTkBDX4BsVrkrlDc6fk9Y2j6EeZlkFETRNMXxyMpE8Eiu/tQ/dOKH4Mj7LQL5Z5eWtnJmlldwqM65wQyPCwuVZ5K4+JOKjyxyoHqaLDreR/cl4eWjOhS+GLYqD6DjYLKrmDhvWlwnBOol2aT3n+CGiSdazCrYggvaWf1R0zXKXxqXi49pyJKSn1CYs3akPFPQX3EEwm18kSyI9VkcdDpgDJCemw9DyJ9dxWEMC1aP1bG4/zI3Gs1rkSlry9zAvf6XsonWNPaVW2miXcbLrgW03Vrhuwgc112jvctTYSePOfgwmqAMPL0rwWLM="
+addons:
+  coverity_scan:
+    project:
+      name: "DNS-OARC/dumdumd"
+      description: "Build submitted via Travis CI"
+    notification_email: lundstrom.jerry@gmail.com
+    build_command_prepend: "./autogen.sh && ./configure && make clean"
+    build_command: "make"
+    branch_pattern: coverity_scan
+script: true
