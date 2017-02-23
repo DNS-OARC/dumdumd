@@ -66,6 +66,7 @@ static void usage(void) {
     printf(
         "usage: %s [options] [ip] <port>\n"
         /* -o            description                                                 .*/
+        "  -B ackend     Select backend: ev, uv (default)\n"
         "  -u            Use UDP\n"
         "  -t            Use TCP\n"
         "                Using both UDP and TCP if none of the above options are used\n"
@@ -266,12 +267,22 @@ int main(int argc, char* argv[]) {
         switch (opt) {
             case 'B':
                 if (!strcmp(optarg, "ev")) {
+#ifdef HAVE_LIBEV
                     use_uv = 0;
                     use_ev = 1;
+#else
+                    fprintf(stderr, "No libev support compiled in\n");
+                    return 2;
+#endif
                 }
                 else if(!strcmp(optarg, "uv")) {
+#ifdef HAVE_LIBUV
                     use_ev = 0;
                     use_uv = 1;
+#else
+                    fprintf(stderr, "No libuv support compiled in\n");
+                    return 2;
+#endif
                 }
                 break;
 
