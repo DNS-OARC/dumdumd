@@ -1,0 +1,8 @@
+2017-02-23 Jerry Lundström
+
+    Release 1.0.0 - dropping all your packets since 2017
+
+    b928138 Add Travis-CI
+    8b4d073 Recv UDP/TCP
+    d40d711 Impl
+    0ca1b6c Initial commit
