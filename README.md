@@ -1,5 +1,26 @@
 # dumdumd
+
+[![Build Status](https://travis-ci.org/DNS-OARC/dumdumd.svg?branch=develop)](https://travis-ci.org/DNS-OARC/dumdumd) [![Coverity Scan Build Status](https://scan.coverity.com/projects/11854/badge.svg)](https://scan.coverity.com/projects/dns-oarc-dumdumd)
+
 High performance UDP/TCP server that... just drops everything you send to it
+
+## Requirements
+
+- libev
+
+## Build
+
+```
+sh autogen.sh
+./configure
+make
+```
+
+## Usage
+
+```
+src/dumdumd -h
+```
 
 ## Author(s)
 
