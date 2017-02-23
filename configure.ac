@@ -29,8 +29,10 @@ m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 LT_INIT([disable-static])
 
 # Checks for libraries/headers.
-AC_CHECK_LIB([ev], [ev_now], [], AC_MSG_ERROR([libev not found]))
-AC_CHECK_HEADER([ev.h], [], [AC_MSG_ERROR([libev header not found])])
+AC_CHECK_HEADERS([ev.h])
+AC_CHECK_LIB([ev], [ev_now])
+AC_CHECK_HEADERS([uv.h])
+AC_CHECK_LIB([uv], [uv_now])
 
 # Check for OS specific libraries
 # case "$host_os" in
