@@ -24,10 +24,31 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <ev.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
+
+#undef ANYBACKEND
+
+#if defined(HAVE_LIBEV) && defined(HAVE_EV_H)
+#undef ANYBACKEND
+#define ANYBACKEND 1
+#include <ev.h>
+#else
+#undef HAVE_LIBEV
+#endif
+
+#if defined(HAVE_LIBUV) && defined(HAVE_UV_H)
+#undef ANYBACKEND
+#define ANYBACKEND 1
+#include <uv.h>
+#else
+#undef HAVE_LIBUV
+#endif
+
+#ifndef ANYBACKEND
+#error "No event library backend found, need at least libev or libuv"
+#endif
 
 char* program_name = 0;
 #define STATS_INIT { 0, 0, 0, 0, 0 }
@@ -45,6 +66,7 @@ static void usage(void) {
     printf(
         "usage: %s [options] [ip] <port>\n"
         /* -o            description                                                 .*/
+        "  -B ackend     Select backend: ev, uv (default)\n"
         "  -u            Use UDP\n"
         "  -t            Use TCP\n"
         "                Using both UDP and TCP if none of the above options are used\n"
@@ -60,7 +82,7 @@ static void version(void) {
     printf("%s version " PACKAGE_VERSION "\n", program_name);
 }
 
-static void stats_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+static inline void stats_cb(void) {
     printf("accept(drop): %lu ( %lu ) conns: %lu pkts: %lu bytes %lu\n",
         _stats.accept,
         _stats.accdrop,
@@ -73,7 +95,12 @@ static void stats_cb(struct ev_loop *loop, ev_timer *w, int revents) {
 
 static char recvbuf[4*1024*1024];
 
-static void recv_cb(struct ev_loop *loop, ev_io *w, int revents) {
+#ifdef HAVE_LIBEV
+static void _ev_stats_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+    stats_cb();
+}
+
+static void _ev_recv_cb(struct ev_loop *loop, ev_io *w, int revents) {
     int fd = w->data - (void*)0, newfd;
     ssize_t bytes;
 
@@ -97,7 +124,7 @@ static void recv_cb(struct ev_loop *loop, ev_io *w, int revents) {
     }
 }
 
-static void accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
+static void _ev_accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
     int fd = w->data - (void*)0, newfd, flags;
     struct sockaddr addr;
     socklen_t len;
@@ -139,12 +166,81 @@ static void accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
                 return;
             }
             io->data += newfd;
-            ev_io_init(io, &recv_cb, newfd, EV_READ);
+            ev_io_init(io, _ev_recv_cb, newfd, EV_READ);
             ev_io_start(loop, io);
             _stats.conns++;
         }
     }
 }
+#endif
+
+#ifdef HAVE_LIBUV
+static void _uv_stats_cb(uv_timer_t* w) {
+    stats_cb();
+}
+
+static void _uv_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
+    buf->base = recvbuf;
+    buf->len = sizeof(recvbuf);
+}
+
+static void _uv_close_cb(uv_handle_t* handle) {
+    free(handle);
+}
+
+static void _uv_udp_recv_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
+    if (nread < 0) {
+        uv_udp_recv_stop(handle);
+        uv_close((uv_handle_t*)handle, _uv_close_cb);
+        return;
+    }
+
+    _stats.pkts++;
+    _stats.bytes += nread;
+}
+
+static void _uv_tcp_recv_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
+    if (nread < 1) {
+        uv_read_stop(handle);
+        uv_close((uv_handle_t*)handle, _uv_close_cb);
+        return;
+    }
+
+    _stats.pkts++;
+    _stats.bytes += nread;
+}
+
+static void _uv_on_connect_cb(uv_stream_t* server, int status) {
+    uv_tcp_t* tcp;
+    int err;
+
+    if (status) {
+        _stats.accdrop++;
+        return;
+    }
+
+    tcp = calloc(1, sizeof(uv_tcp_t));
+    if ((err = uv_tcp_init(uv_default_loop(), tcp))) {
+        fprintf(stderr, "uv_tcp_init() %s\n", uv_strerror(err));
+        free(tcp);
+        _stats.accdrop++;
+        return;
+    }
+    if ((err = uv_accept(server, (uv_stream_t*)tcp))) {
+        fprintf(stderr, "uv_accept() %s\n", uv_strerror(err));
+        uv_close((uv_handle_t*)tcp, _uv_close_cb);
+        _stats.accdrop++;
+        return;
+    }
+    _stats.accept++;
+    if ((err = uv_read_start((uv_stream_t*)tcp, _uv_alloc_cb, _uv_tcp_recv_cb))) {
+        fprintf(stderr, "uv_read_start() %s\n", uv_strerror(err));
+        uv_close((uv_handle_t*)tcp, _uv_close_cb);
+        return;
+    }
+    _stats.conns++;
+}
+#endif
 
 int main(int argc, char* argv[]) {
     int opt, use_udp = 0, use_tcp = 0, reuse_addr = 0, reuse_port = 0;
@@ -152,8 +248,13 @@ int main(int argc, char* argv[]) {
     struct addrinfo hints;
     const char* node = 0;
     const char* service = 0;
-    struct ev_loop *loop = EV_DEFAULT;
-    ev_timer stats;
+    int use_ev = 0, use_uv = 0;
+
+#if defined(HAVE_LIBUV)
+    use_uv = 1;
+#elif defined(HAVE_LIBEV)
+    use_ev = 1;
+#endif
 
     if ((program_name = strrchr(argv[0], '/'))) {
         program_name++;
@@ -162,8 +263,29 @@ int main(int argc, char* argv[]) {
         program_name = argv[0];
     }
 
-    while ((opt = getopt(argc, argv, "utARhV")) != -1) {
+    while ((opt = getopt(argc, argv, "B:utARhV")) != -1) {
         switch (opt) {
+            case 'B':
+                if (!strcmp(optarg, "ev")) {
+#ifdef HAVE_LIBEV
+                    use_uv = 0;
+                    use_ev = 1;
+#else
+                    fprintf(stderr, "No libev support compiled in\n");
+                    return 2;
+#endif
+                }
+                else if(!strcmp(optarg, "uv")) {
+#ifdef HAVE_LIBUV
+                    use_ev = 0;
+                    use_uv = 1;
+#else
+                    fprintf(stderr, "No libuv support compiled in\n");
+                    return 2;
+#endif
+                }
+                break;
+
             case 'u':
                 use_udp = 1;
                 break;
@@ -285,26 +407,85 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
 
-            if (bind(fd, ai->ai_addr, ai->ai_addrlen) < 0) {
-                perror("bind()");
-                return 1;
+#ifdef HAVE_LIBEV
+            if (use_ev) {
+                if (bind(fd, ai->ai_addr, ai->ai_addrlen) < 0) {
+                    perror("bind()");
+                    return 1;
+                }
+                if (ai->ai_socktype == SOCK_STREAM && listen(fd, 10)) {
+                    perror("listen()");
+                    return 1;
+                }
+
+                {
+                    ev_io* io = calloc(1, sizeof(ev_io));
+                    if (!io) {
+                        perror("calloc()");
+                        return 1;
+                    }
+                    io->data += fd;
+                    ev_io_init(io, ai->ai_socktype == SOCK_STREAM ? _ev_accept_cb : _ev_recv_cb, fd, EV_READ);
+                    ev_io_start(EV_DEFAULT, io);
+                }
             }
-            if (ai->ai_socktype == SOCK_STREAM && listen(fd, 10)) {
-                perror("listen()");
-                return 1;
+            else
+#endif
+#ifdef HAVE_LIBUV
+            if (use_uv) {
+                int err;
+                if (ai->ai_socktype == SOCK_DGRAM) {
+                    uv_udp_t* udp = calloc(1, sizeof(uv_udp_t));
+
+                    if ((err = uv_udp_init(uv_default_loop(), udp))) {
+                        fprintf(stderr, "uv_udp_init() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                    if ((err = uv_udp_open(udp, fd))) {
+                        fprintf(stderr, "uv_udp_open() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                    if ((err = uv_udp_bind(udp, ai->ai_addr, UV_UDP_REUSEADDR))) {
+                        fprintf(stderr, "uv_udp_bind() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                    if ((err = uv_udp_recv_start(udp, _uv_alloc_cb, _uv_udp_recv_cb))) {
+                        fprintf(stderr, "uv_udp_recv_start() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                }
+                else if(ai->ai_socktype == SOCK_STREAM) {
+                    uv_tcp_t* tcp = calloc(1, sizeof(uv_tcp_t));
+
+                    if ((err = uv_tcp_init(uv_default_loop(), tcp))) {
+                        fprintf(stderr, "uv_tcp_init() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                    if ((err = uv_tcp_open(tcp, fd))) {
+                        fprintf(stderr, "uv_tcp_open() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                    if ((err = uv_tcp_bind(tcp, ai->ai_addr, UV_UDP_REUSEADDR))) {
+                        fprintf(stderr, "uv_tcp_bind() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                    if ((err = uv_listen((uv_stream_t*)tcp, 10, _uv_on_connect_cb))) {
+                        fprintf(stderr, "uv_listen() %s\n", uv_strerror(err));
+                        return 1;
+                    }
+                }
+                else {
+                    continue;
+                }
+            }
+            else
+#endif
+            {
+                return 3;
             }
 
             {
                 char h[NI_MAXHOST], s[NI_MAXSERV];
-                ev_io* io = calloc(1, sizeof(ev_io));
-                if (!io) {
-                    perror("calloc()");
-                    return 1;
-                }
-                io->data += fd;
-                ev_io_init(io, ai->ai_socktype == SOCK_STREAM ? &accept_cb : &recv_cb, fd, EV_READ);
-                ev_io_start(loop, io);
-
                 if (getnameinfo(ai->ai_addr, ai->ai_addrlen, h, NI_MAXHOST, s, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV)) {
                     perror("getnameinfo()");
                     h[0] = 0;
@@ -318,10 +499,33 @@ int main(int argc, char* argv[]) {
 
     freeaddrinfo(addrinfo);
 
-    ev_timer_init(&stats, &stats_cb, 1.0, 1.0);
-    ev_timer_start(loop, &stats);
+#ifdef HAVE_LIBEV
+    if (use_ev) {
+        ev_timer stats;
 
-    ev_run(loop, 0);
+        printf("backend: libev\n");
+        ev_timer_init(&stats, _ev_stats_cb, 1.0, 1.0);
+        ev_timer_start(EV_DEFAULT, &stats);
+
+        ev_run(EV_DEFAULT, 0);
+    }
+    else
+#endif
+#ifdef HAVE_LIBUV
+    if (use_uv) {
+        uv_timer_t stats;
+
+        printf("backend: libuv\n");
+        uv_timer_init(uv_default_loop(), &stats);
+        uv_timer_start(&stats, _uv_stats_cb, 1000, 1000);
+
+        uv_run(uv_default_loop(), 0);
+    }
+    else
+#endif
+    {
+        printf("backend: none\n");
+    }
 
     return 0;
 }

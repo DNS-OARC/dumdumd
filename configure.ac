@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 AC_PREREQ(2.61)
-AC_INIT([dumdumd], [1.0.0], [admin@dns-oarc.net], [dumdumd], [https://github.com/DNS-OARC/dumdumd/issues])
+AC_INIT([dumdumd], [1.1.0], [admin@dns-oarc.net], [dumdumd], [https://github.com/DNS-OARC/dumdumd/issues])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
 AC_CONFIG_SRCDIR([src/dumdumd.c])
 AC_CONFIG_HEADER([src/config.h])
@@ -29,8 +29,10 @@ m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 LT_INIT([disable-static])
 
 # Checks for libraries/headers.
-AC_CHECK_LIB([ev], [ev_now], [], AC_MSG_ERROR([libev not found]))
-AC_CHECK_HEADER([ev.h], [], [AC_MSG_ERROR([libev header not found])])
+AC_CHECK_HEADERS([ev.h])
+AC_CHECK_LIB([ev], [ev_now])
+AC_CHECK_HEADERS([uv.h])
+AC_CHECK_LIB([uv], [uv_now])
 
 # Check for OS specific libraries
 # case "$host_os" in
