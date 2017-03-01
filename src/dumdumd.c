@@ -72,6 +72,7 @@ static void usage(void) {
         "                Using both UDP and TCP if none of the above options are used\n"
         "  -A            Use SO_REUSEADDR on sockets\n"
         "  -R            Use SO_REUSEPORT on sockets\n"
+        "  -L <sec>      Use SO_LINGER with the given seconds\n"
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n",
         program_name
@@ -100,28 +101,36 @@ static void _ev_stats_cb(struct ev_loop *loop, ev_timer *w, int revents) {
     stats_cb();
 }
 
+static void _ev_shutdown_cb(struct ev_loop *loop, ev_io *w, int revents) {
+    int fd = w->data - (void*)0;
+
+    if (recv(fd, recvbuf, sizeof(recvbuf), 0) > 0)
+        return;
+
+    ev_io_stop(loop, w);
+    close(fd);
+    free(w); /* TODO: Delayed free maybe? */
+}
+
 static void _ev_recv_cb(struct ev_loop *loop, ev_io *w, int revents) {
-    int fd = w->data - (void*)0, newfd;
+    int fd = w->data - (void*)0;
     ssize_t bytes;
 
     for (;;) {
         bytes = recv(fd, recvbuf, sizeof(recvbuf), 0);
-        if (bytes < 0) {
-            perror("recv()");
-            shutdown(fd, SHUT_RDWR);
-        }
-        if (bytes < 1) {
-            ev_io_stop(loop, w);
-            close(fd);
-            free(w); /* TODO: Delayed free maybe? */
-            return;
-        }
+        if (bytes < 1)
+            break;
         _stats.pkts++;
         _stats.bytes += bytes;
         if (bytes < sizeof(recvbuf)) {
             return;
         }
     }
+
+    ev_io_stop(loop, w);
+    shutdown(fd, SHUT_RDWR);
+    ev_io_init(w, _ev_shutdown_cb, fd, EV_READ);
+    ev_io_start(loop, w);
 }
 
 static void _ev_accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
@@ -140,6 +149,7 @@ static void _ev_accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
             fprintf(stderr, "accept(%d) ", fd);
             perror("");
             ev_io_stop(loop, w);
+            shutdown(fd, SHUT_RDWR);
             close(fd);
             free(w); /* TODO: Delayed free maybe? */
             _stats.accdrop++;
@@ -200,7 +210,7 @@ static void _uv_udp_recv_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf
 }
 
 static void _uv_tcp_recv_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
-    if (nread < 1) {
+    if (nread < 0) {
         uv_read_stop(handle);
         uv_close((uv_handle_t*)handle, _uv_close_cb);
         return;
@@ -243,7 +253,7 @@ static void _uv_on_connect_cb(uv_stream_t* server, int status) {
 #endif
 
 int main(int argc, char* argv[]) {
-    int opt, use_udp = 0, use_tcp = 0, reuse_addr = 0, reuse_port = 0;
+    int opt, use_udp = 0, use_tcp = 0, reuse_addr = 0, reuse_port = 0, linger = 0;
     struct addrinfo* addrinfo = 0;
     struct addrinfo hints;
     const char* node = 0;
@@ -263,7 +273,7 @@ int main(int argc, char* argv[]) {
         program_name = argv[0];
     }
 
-    while ((opt = getopt(argc, argv, "B:utARhV")) != -1) {
+    while ((opt = getopt(argc, argv, "B:utARL:hV")) != -1) {
         switch (opt) {
             case 'B':
                 if (!strcmp(optarg, "ev")) {
@@ -300,6 +310,14 @@ int main(int argc, char* argv[]) {
 
             case 'R':
                 reuse_port = 1;
+                break;
+
+            case 'L':
+                linger = atoi(optarg);
+                if (linger < 1) {
+                    usage();
+                    return 2;
+                }
                 break;
 
             case 'h':
@@ -397,6 +415,17 @@ int main(int argc, char* argv[]) {
                 }
             }
 #endif
+            {
+                struct linger l = { 0, 0 };
+                if (linger > 0) {
+                    l.l_onoff = 1;
+                    l.l_linger = linger;
+                }
+                if (setsockopt(fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l))) {
+                    perror("setsockopt(SO_LINGER)");
+                    return 1;
+                }
+            }
 
             if ((flags = fcntl(fd, F_GETFL)) == -1) {
                 perror("fcntl(F_GETFL)");
