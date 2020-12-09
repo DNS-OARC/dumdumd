@@ -73,6 +73,7 @@ static void usage(void) {
         "  -A            Use SO_REUSEADDR on sockets\n"
         "  -R            Use SO_REUSEPORT on sockets\n"
         "  -L <sec>      Use SO_LINGER with the given seconds\n"
+        "  -r            Reflect data back to sender (Only in uv over UDP)\n"
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n",
         program_name
@@ -189,13 +190,47 @@ static void _uv_stats_cb(uv_timer_t* w) {
     stats_cb();
 }
 
+void* _req_list = 0;
+
+inline void _req_add(void* vp) {
+    *(void**)vp = _req_list;
+    _req_list = vp;
+}
+
+void* _buf_list = 0;
+
+inline void _buf_add(void* vp) {
+    *(void**)vp = _buf_list;
+    _buf_list = vp;
+}
+
 static void _uv_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
     buf->base = recvbuf;
     buf->len = sizeof(recvbuf);
 }
 
+static void _uv_alloc_reflect_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
+    if (_buf_list) {
+        buf->base = _buf_list;
+        _buf_list = *(void**)_buf_list;
+    } else {
+        buf->base = malloc(4096);
+    }
+    buf->len = 4096;
+}
+
 static void _uv_close_cb(uv_handle_t* handle) {
     free(handle);
+}
+
+static void _uv_udp_recv_reflect_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags);
+
+static void _uv_udp_send_cb(uv_udp_send_t* req, int status) {
+    if (uv_udp_recv_start(req->handle, _uv_alloc_reflect_cb, _uv_udp_recv_reflect_cb)) {
+        uv_close((uv_handle_t*)req->handle, _uv_close_cb);
+    }
+    _buf_add(req->data);
+    _req_add(req);
 }
 
 static void _uv_udp_recv_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
@@ -207,6 +242,42 @@ static void _uv_udp_recv_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf
 
     _stats.pkts++;
     _stats.bytes += nread;
+}
+
+static void _uv_udp_recv_reflect_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
+    if (nread < 0) {
+        uv_udp_recv_stop(handle);
+        uv_close((uv_handle_t*)handle, _uv_close_cb);
+        _buf_add(buf->base);
+        return;
+    }
+
+    _stats.pkts++;
+    _stats.bytes += nread;
+
+    uv_udp_recv_stop(handle);
+
+    uv_udp_send_t* req;
+    if (_req_list) {
+        req = _req_list;
+        _req_list = *(void**)_req_list;
+    } else {
+        req = malloc(sizeof(*req));
+    }
+    if (!req) {
+        uv_close((uv_handle_t*)handle, _uv_close_cb);
+        _buf_add(buf->base);
+        return;
+    }
+    req->data = buf->base;
+    uv_buf_t sndbuf;
+    sndbuf = uv_buf_init(buf->base, nread);
+    if (uv_udp_send(req, handle, &sndbuf, 1, addr, _uv_udp_send_cb)) {
+        uv_close((uv_handle_t*)handle, _uv_close_cb);
+        _req_add(req);
+        _buf_add(buf->base);
+        return;
+    }
 }
 
 static void _uv_tcp_recv_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
@@ -253,7 +324,7 @@ static void _uv_on_connect_cb(uv_stream_t* server, int status) {
 #endif
 
 int main(int argc, char* argv[]) {
-    int opt, use_udp = 0, use_tcp = 0, reuse_addr = 0, reuse_port = 0, linger = 0;
+    int opt, use_udp = 0, use_tcp = 0, reuse_addr = 0, reuse_port = 0, linger = 0, reflect = 0;
     struct addrinfo* addrinfo = 0;
     struct addrinfo hints;
     const char* node = 0;
@@ -273,7 +344,7 @@ int main(int argc, char* argv[]) {
         program_name = argv[0];
     }
 
-    while ((opt = getopt(argc, argv, "B:utARL:hV")) != -1) {
+    while ((opt = getopt(argc, argv, "B:utARL:rhV")) != -1) {
         switch (opt) {
             case 'B':
                 if (!strcmp(optarg, "ev")) {
@@ -318,6 +389,10 @@ int main(int argc, char* argv[]) {
                     usage();
                     return 2;
                 }
+                break;
+
+            case 'r':
+                reflect = 1;
                 break;
 
             case 'h':
@@ -478,9 +553,17 @@ int main(int argc, char* argv[]) {
                         fprintf(stderr, "uv_udp_bind() %s\n", uv_strerror(err));
                         return 1;
                     }
-                    if ((err = uv_udp_recv_start(udp, _uv_alloc_cb, _uv_udp_recv_cb))) {
-                        fprintf(stderr, "uv_udp_recv_start() %s\n", uv_strerror(err));
-                        return 1;
+                    if (reflect) {
+                        printf("reflecting UDP packets\n");
+                        if ((err = uv_udp_recv_start(udp, _uv_alloc_reflect_cb, _uv_udp_recv_reflect_cb))) {
+                            fprintf(stderr, "uv_udp_recv_start() %s\n", uv_strerror(err));
+                            return 1;
+                        }
+                    } else {
+                        if ((err = uv_udp_recv_start(udp, _uv_alloc_cb, _uv_udp_recv_cb))) {
+                            fprintf(stderr, "uv_udp_recv_start() %s\n", uv_strerror(err));
+                            return 1;
+                        }
                     }
                 }
                 else if(ai->ai_socktype == SOCK_STREAM) {
