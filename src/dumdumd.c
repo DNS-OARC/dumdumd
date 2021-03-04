@@ -73,7 +73,7 @@ static void usage(void) {
         "  -A            Use SO_REUSEADDR on sockets\n"
         "  -R            Use SO_REUSEPORT on sockets\n"
         "  -L <sec>      Use SO_LINGER with the given seconds\n"
-        "  -r            Reflect data back to sender (Only in uv over UDP)\n"
+        "  -r            Reflect data back to sender (Only in uv)\n"
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n",
         program_name
@@ -315,6 +315,80 @@ static void _uv_on_connect_cb(uv_stream_t* server, int status) {
     }
     _stats.accept++;
     if ((err = uv_read_start((uv_stream_t*)tcp, _uv_alloc_cb, _uv_tcp_recv_cb))) {
+        fprintf(stderr, "uv_read_start() %s\n", uv_strerror(err));
+        uv_close((uv_handle_t*)tcp, _uv_close_cb);
+        return;
+    }
+    _stats.conns++;
+}
+
+typedef struct {
+    uv_write_t req;
+    uv_buf_t buf;
+} write_req_t;
+
+static void _uv_tcp_recv_reflect_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf);
+
+static void _uv_tcp_send_cb(uv_write_t* req, int status) {
+    if (uv_read_start((uv_stream_t*)req->handle, _uv_alloc_reflect_cb, _uv_tcp_recv_reflect_cb)) {
+        uv_close((uv_handle_t*)req->handle, _uv_close_cb);
+    }
+    _buf_add(((write_req_t*)req)->buf.base);
+    _req_add(req);
+}
+
+static void _uv_tcp_recv_reflect_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
+    if (nread < 0) {
+        uv_read_stop(handle);
+        uv_close((uv_handle_t*)handle, _uv_close_cb);
+        return;
+    }
+
+    _stats.pkts++;
+    _stats.bytes += nread;
+
+    uv_read_stop(handle);
+
+    write_req_t* req;
+    if (_req_list) {
+        req = _req_list;
+        _req_list = *(void**)_req_list;
+    } else {
+        req = malloc(sizeof(*req));
+    }
+    if (!req) {
+        uv_close((uv_handle_t*)handle, _uv_close_cb);
+        _buf_add(buf->base);
+        return;
+    }
+    req->buf = uv_buf_init(buf->base, nread);
+    uv_write((uv_write_t*)req, handle, &req->buf, 1, _uv_tcp_send_cb);
+}
+
+static void _uv_on_connect_reflect_cb(uv_stream_t* server, int status) {
+    uv_tcp_t* tcp;
+    int err;
+
+    if (status) {
+        _stats.accdrop++;
+        return;
+    }
+
+    tcp = calloc(1, sizeof(uv_tcp_t));
+    if ((err = uv_tcp_init(uv_default_loop(), tcp))) {
+        fprintf(stderr, "uv_tcp_init() %s\n", uv_strerror(err));
+        free(tcp);
+        _stats.accdrop++;
+        return;
+    }
+    if ((err = uv_accept(server, (uv_stream_t*)tcp))) {
+        fprintf(stderr, "uv_accept() %s\n", uv_strerror(err));
+        uv_close((uv_handle_t*)tcp, _uv_close_cb);
+        _stats.accdrop++;
+        return;
+    }
+    _stats.accept++;
+    if ((err = uv_read_start((uv_stream_t*)tcp, _uv_alloc_reflect_cb, _uv_tcp_recv_reflect_cb))) {
         fprintf(stderr, "uv_read_start() %s\n", uv_strerror(err));
         uv_close((uv_handle_t*)tcp, _uv_close_cb);
         return;
@@ -581,9 +655,17 @@ int main(int argc, char* argv[]) {
                         fprintf(stderr, "uv_tcp_bind() %s\n", uv_strerror(err));
                         return 1;
                     }
-                    if ((err = uv_listen((uv_stream_t*)tcp, 10, _uv_on_connect_cb))) {
-                        fprintf(stderr, "uv_listen() %s\n", uv_strerror(err));
-                        return 1;
+                    if (reflect) {
+                        printf("reflecting TCP packets\n");
+                        if ((err = uv_listen((uv_stream_t*)tcp, 10, _uv_on_connect_reflect_cb))) {
+                            fprintf(stderr, "uv_listen() %s\n", uv_strerror(err));
+                            return 1;
+                        }
+                    } else {
+                        if ((err = uv_listen((uv_stream_t*)tcp, 10, _uv_on_connect_cb))) {
+                            fprintf(stderr, "uv_listen() %s\n", uv_strerror(err));
+                            return 1;
+                        }
                     }
                 }
                 else {
