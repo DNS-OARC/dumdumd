@@ -17,8 +17,10 @@
 MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
 
 AM_CFLAGS = -I$(srcdir) \
-    -I$(top_srcdir)
+  -I$(top_srcdir) \
+  $(libssl_CFLAGS) $(libcrypto_CFLAGS)
 
 bin_PROGRAMS = dumdumd
 
 dumdumd_SOURCES = dumdumd.c
+dumdumd_LDADD = $(libssl_LIBS) $(libcrypto_LIBS)
