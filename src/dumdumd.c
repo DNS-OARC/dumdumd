@@ -479,6 +479,8 @@ static void _uv_tcp_recv_reflect_cb(uv_stream_t* handle, ssize_t nread, const uv
             _buf_add(buf->base);
             return;
         }
+    } else {
+        _stats.bytes += nread;
     }
 
     uv_read_stop(handle);
