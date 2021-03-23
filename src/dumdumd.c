@@ -74,6 +74,8 @@ struct tls_ctx {
 };
 
 bool close_conn_after_first = false;
+int random_disconnect = 0;
+unsigned long long random_disconnected = 0, random_disconnect_checks = 0;
 
 static void usage(void) {
     printf(
@@ -87,6 +89,7 @@ static void usage(void) {
         "                key.pem cert.pem expected in $PWD\n"
         "  -C            Close connection after first reflect, only applied for\n"
         "                TCP/TLS and if -r is used\n"
+        "  -D <num>      Do random disconnect on receive (TCP/TLS), 0-100 (percent)\n"
         "  -A            Use SO_REUSEADDR on sockets\n"
         "  -R            Use SO_REUSEPORT on sockets\n"
         "  -L <sec>      Use SO_LINGER with the given seconds\n"
@@ -151,6 +154,44 @@ static void _ev_recv_cb(struct ev_loop *loop, ev_io *w, int revents) {
     ev_io_start(loop, w);
 }
 
+static void _ev_recv_tcp_cb(struct ev_loop *loop, ev_io *w, int revents) {
+    int fd = w->data - (void*)0;
+    ssize_t bytes;
+
+    if (random_disconnect) {
+        random_disconnect_checks++;
+        if (random_disconnect_checks < random_disconnected) {
+            // unsigned looped
+            random_disconnected = 0;
+            random_disconnect_checks = 0;
+        }
+        if (rand() % 100 < random_disconnect && (random_disconnected * 100) / random_disconnect_checks < random_disconnect) {
+            random_disconnected++;
+            ev_io_stop(loop, w);
+            shutdown(fd, SHUT_RDWR);
+            ev_io_init(w, _ev_shutdown_cb, fd, EV_READ);
+            ev_io_start(loop, w);
+            return;
+        }
+    }
+
+    for (;;) {
+        bytes = recv(fd, recvbuf, sizeof(recvbuf), 0);
+        if (bytes < 1)
+            break;
+        _stats.pkts++;
+        _stats.bytes += bytes;
+        if (bytes < sizeof(recvbuf)) {
+            return;
+        }
+    }
+
+    ev_io_stop(loop, w);
+    shutdown(fd, SHUT_RDWR);
+    ev_io_init(w, _ev_shutdown_cb, fd, EV_READ);
+    ev_io_start(loop, w);
+}
+
 static void _ev_accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
     int fd = w->data - (void*)0, newfd, flags;
     struct sockaddr addr;
@@ -194,7 +235,7 @@ static void _ev_accept_cb(struct ev_loop *loop, ev_io *w, int revents) {
                 return;
             }
             io->data += newfd;
-            ev_io_init(io, _ev_recv_cb, newfd, EV_READ);
+            ev_io_init(io, _ev_recv_tcp_cb, newfd, EV_READ);
             ev_io_start(loop, io);
             _stats.conns++;
         }
@@ -303,6 +344,21 @@ static void _uv_udp_recv_reflect_cb(uv_udp_t* handle, ssize_t nread, const uv_bu
 }
 
 static void _uv_tcp_recv_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
+    if (random_disconnect) {
+        random_disconnect_checks++;
+        if (random_disconnect_checks < random_disconnected) {
+            // unsigned looped
+            random_disconnected = 0;
+            random_disconnect_checks = 0;
+        }
+        if (rand() % 100 < random_disconnect && (random_disconnected * 100) / random_disconnect_checks < random_disconnect) {
+            random_disconnected++;
+            uv_read_stop(handle);
+            uv_close((uv_handle_t*)handle, _uv_close_cb);
+            return;
+        }
+    }
+
     if (nread < 0) {
         uv_read_stop(handle);
         uv_close((uv_handle_t*)handle, _uv_close_cb);
@@ -384,9 +440,27 @@ static void _uv_tcp_send_cb(uv_write_t* req, int status) {
 }
 
 static void _uv_tcp_recv_reflect_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
+    if (random_disconnect) {
+        random_disconnect_checks++;
+        if (random_disconnect_checks < random_disconnected) {
+            // unsigned looped
+            random_disconnected = 0;
+            random_disconnect_checks = 0;
+        }
+        int r;
+        if ((r = rand() % 100) < random_disconnect && (random_disconnected * 100) / random_disconnect_checks < random_disconnect) {
+            random_disconnected++;
+            uv_read_stop(handle);
+            uv_close((uv_handle_t*)handle, _uv_close_cb);
+            _buf_add(buf->base);
+            return;
+        }
+    }
+
     if (nread < 0) {
         uv_read_stop(handle);
         uv_close((uv_handle_t*)handle, _uv_close_cb);
+        _buf_add(buf->base);
         return;
     }
 
@@ -636,6 +710,8 @@ int main(int argc, char* argv[]) {
     use_ev = 1;
 #endif
 
+    srand(time(0));
+
     if ((program_name = strrchr(argv[0], '/'))) {
         program_name++;
     }
@@ -643,7 +719,7 @@ int main(int argc, char* argv[]) {
         program_name = argv[0];
     }
 
-    while ((opt = getopt(argc, argv, "B:utTCARL:rhV")) != -1) {
+    while ((opt = getopt(argc, argv, "B:utTCD:ARL:rhV")) != -1) {
         switch (opt) {
             case 'B':
                 if (!strcmp(optarg, "ev")) {
@@ -681,6 +757,14 @@ int main(int argc, char* argv[]) {
 
             case 'C':
                 close_conn_after_first = true;
+                break;
+
+            case 'D':
+                random_disconnect = atoi(optarg);
+                if (random_disconnect < 1 || random_disconnect > 100) {
+                    usage();
+                    return 2;
+                }
                 break;
 
             case 'A':
