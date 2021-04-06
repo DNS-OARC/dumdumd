@@ -1,3 +1,21 @@
+2021-04-06 Jerry Lundström
+
+    Release 1.2.0
+
+    New stuff:
+    - Add `-L` to control lingering
+    - Add option `-r`, reflect UDP back to sender
+    - Add TCP reflection when using libuv
+    - Add TLS support `-T`
+    - Add reflection TLS
+    - Add "close after first reflect" `-C`
+    - Add option `-D <percent>`: Randomly disconnect on receive based on a percentage
+
+    Bugfixes and tweaks:
+    - Use `shutdown()` and add callback in EV code
+    - Fix TCP stats when reflecting
+    - Fix memory leak in UV TCP receive handler
+
 2017-02-23 Jerry Lundström
 
     Release 1.1.0 - now with `-B`ackends!
