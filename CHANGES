@@ -16,6 +16,13 @@
     - Fix TCP stats when reflecting
     - Fix memory leak in UV TCP receive handler
 
+    3b0c91c random disconnect
+    8fd0525 TCP stats
+    b1bef63 work
+    a10a963 Reflect TCP
+    8a3d99c reflect UDP
+    24b6208 Socket lingering and proper shutdown
+
 2017-02-23 Jerry Lundström
 
     Release 1.1.0 - now with `-B`ackends!
