@@ -27,7 +27,7 @@ Jerry Lundström <jerry@dns-oarc.net>
 
 ## Copyright
 
-Copyright (c) 2017, OARC, Inc.
+Copyright (c) 2017-2021, OARC, Inc.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published

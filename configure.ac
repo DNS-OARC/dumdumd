@@ -1,5 +1,5 @@
 # dumdumd - packets sent lightning fast to dev null
-# Copyright (c) 2017, OARC, Inc.
+# Copyright (c) 2017-2021, OARC, Inc.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published
@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 AC_PREREQ(2.61)
-AC_INIT([dumdumd], [1.1.0], [admin@dns-oarc.net], [dumdumd], [https://github.com/DNS-OARC/dumdumd/issues])
+AC_INIT([dumdumd], [1.2.0], [admin@dns-oarc.net], [dumdumd], [https://github.com/DNS-OARC/dumdumd/issues])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
 AC_CONFIG_SRCDIR([src/dumdumd.c])
 AC_CONFIG_HEADER([src/config.h])
