@@ -1,12 +1,14 @@
+dist: xenial
+addons:
+  apt:
+    update: true
+    packages:
+    - libev-dev
+    - libuv1-dev
 language: c
-dist: trusty
 compiler:
   - clang
   - gcc
-before_install:
-  - sudo add-apt-repository ppa:ondrej/apache2 -y
-  - sudo apt-get -qq update
-  - sudo apt-get install -y libev-dev libuv1-dev
 install: ./autogen.sh
 script:
   - ./configure

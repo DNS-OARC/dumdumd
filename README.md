@@ -1,12 +1,11 @@
 # dumdumd
 
-[![Build Status](https://travis-ci.org/DNS-OARC/dumdumd.svg?branch=develop)](https://travis-ci.org/DNS-OARC/dumdumd) [![Coverity Scan Build Status](https://scan.coverity.com/projects/11854/badge.svg)](https://scan.coverity.com/projects/dns-oarc-dumdumd)
-
 High performance UDP/TCP server that... just drops everything you send to it
 
 ## Requirements
 
 - libev-dev || libuv1-dev
+- libssl-dev
 
 ## Build
 
@@ -28,7 +27,7 @@ Jerry Lundström <jerry@dns-oarc.net>
 
 ## Copyright
 
-Copyright (c) 2017, OARC, Inc.
+Copyright (c) 2017-2021, OARC, Inc.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published
