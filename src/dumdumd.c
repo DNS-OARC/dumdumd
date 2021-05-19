@@ -112,6 +112,7 @@ static inline void stats_cb(void) {
         _stats.pkts,
         _stats.bytes
     );
+    fflush(stdout);
     _stats = _stats0;
 }
 
