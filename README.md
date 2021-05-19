@@ -4,6 +4,9 @@ High performance UDP/TCP server that... just drops everything you send to it
 
 ## Requirements
 
+`dumdumd` requires a couple of libraries beside a normal C compiling
+environment with autoconf, automake, libtool and pkgconfig.
+
 - libev-dev || libuv1-dev
 - libssl-dev
 
