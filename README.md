@@ -24,6 +24,19 @@ make
 src/dumdumd -h
 ```
 
+## Docker usage
+
+```
+docker build -t dumdumd .
+docker run -ti --init --network=host dumdumd -h
+```
+
+Optional parameter `--network=host` disables Docker networking.
+This improves performance when testing over physical network interfaces.
+
+Optional parameters `-ti --init` make terminal work as you would expect,
+namely SIGINT from Control+C gets propagated to dumdumd.
+
 ## Author(s)
 
 Jerry Lundström <jerry@dns-oarc.net>
