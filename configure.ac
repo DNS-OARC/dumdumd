@@ -33,8 +33,10 @@ AC_CHECK_HEADERS([ev.h])
 AC_CHECK_LIB([ev], [ev_now])
 AC_CHECK_HEADERS([uv.h])
 AC_CHECK_LIB([uv], [uv_now])
+AC_CHECK_LIB([event], [event_base_loop])
 PKG_CHECK_MODULES([libssl], [libssl])
 PKG_CHECK_MODULES([libcrypto], [libcrypto])
+PKG_CHECK_MODULES([libnghttp2], [libnghttp2])
 AC_CHECK_LIB([ssl], [TLS_method],
   [AC_DEFINE([HAVE_TLS_METHOD], [1], [Define to 1 if you have the 'TLS_method' function])])
 

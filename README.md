@@ -9,6 +9,8 @@ environment with autoconf, automake, libtool and pkgconfig.
 
 - libev-dev || libuv1-dev
 - libssl-dev
+- libevent-dev
+- libnghttp2-dev
 
 ## Build
 
