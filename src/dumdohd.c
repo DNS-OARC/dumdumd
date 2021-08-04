@@ -574,10 +574,13 @@ static int on_request_recv(nghttp2_session* session,
     http2_stream_data*                      stream_data)
 {
     // int fd;
-    nghttp2_nv hdrs[] = { MAKE_NV(":status", "200") };
+    nghttp2_nv hdrs[] = {
+        MAKE_NV(":status", "200"),
+        MAKE_NV("content-type", "application/dns")
+    };
     // char *rel_path;
 
-    if (!stream_data->request_path) {
+    if (!stream_data->request_path || !stream_data->datalen) {
         if (error_reply(session, stream_data) != 0) {
             return NGHTTP2_ERR_CALLBACK_FAILURE;
         }
