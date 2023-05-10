@@ -30,6 +30,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <stdbool.h>
+#include <signal.h>
 
 #undef ANYBACKEND
 
@@ -1053,6 +1054,11 @@ int main(int argc, char* argv[])
     }
 
     freeaddrinfo(addrinfo);
+
+    struct sigaction act;
+    memset(&act, 0, sizeof(struct sigaction));
+    act.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &act, NULL);
 
 #ifdef HAVE_LIBEV
     if (use_ev) {
