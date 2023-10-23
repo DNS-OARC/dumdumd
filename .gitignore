@@ -66,4 +66,5 @@ src/stamp-h1
 build
 
 # Project specific files
+src/dumdohd
 src/dumdumd
