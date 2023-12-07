@@ -79,6 +79,7 @@ struct tls_ctx {
 
 bool               close_conn_after_first = false;
 int                random_disconnect      = 0;
+int                listen_backlog         = 10;
 unsigned long long random_disconnected = 0, random_disconnect_checks = 0;
 
 static void usage(void)
@@ -99,6 +100,7 @@ static void usage(void)
         "  -R            Use SO_REUSEPORT on sockets\n"
         "  -L <sec>      Use SO_LINGER with the given seconds\n"
         "  -r            Reflect data back to sender (Only in uv)\n"
+        "  -Q            Use specified listen() queue size\n",
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n",
         program_name);
@@ -743,7 +745,7 @@ int main(int argc, char* argv[])
         program_name = argv[0];
     }
 
-    while ((opt = getopt(argc, argv, "B:utTCD:ARL:rhV")) != -1) {
+    while ((opt = getopt(argc, argv, "B:utTCD:ARL:rhVQ:")) != -1) {
         switch (opt) {
         case 'B':
             if (!strcmp(optarg, "ev")) {
@@ -817,6 +819,17 @@ int main(int argc, char* argv[])
         case 'V':
             version();
             return 0;
+
+        case 'Q':
+            listen_backlog = atoi(optarg);
+            if (listen_backlog < 1) {
+                usage();
+                return 2;
+            }
+            if (listen_backlog > 128) {
+                fprintf(stderr, "warning: make sure your kernel is configured for listen backlog %d\n", listen_backlog);
+            }
+            break;
 
         default:
             usage();
@@ -957,7 +970,7 @@ int main(int argc, char* argv[])
                     perror("bind()");
                     return 1;
                 }
-                if (ai->ai_socktype == SOCK_STREAM && listen(fd, 10)) {
+                if (ai->ai_socktype == SOCK_STREAM && listen(fd, listen_backlog)) {
                     perror("listen()");
                     return 1;
                 }
@@ -1021,12 +1034,12 @@ int main(int argc, char* argv[])
                     }
                     if (reflect) {
                         printf("reflecting %s packets\n", use_tls ? "TLS" : "TCP");
-                        if ((err = uv_listen((uv_stream_t*)tcp, 10, _uv_on_connect_reflect_cb))) {
+                        if ((err = uv_listen((uv_stream_t*)tcp, listen_backlog, _uv_on_connect_reflect_cb))) {
                             fprintf(stderr, "uv_listen() %s\n", uv_strerror(err));
                             return 1;
                         }
                     } else {
-                        if ((err = uv_listen((uv_stream_t*)tcp, 10, _uv_on_connect_cb))) {
+                        if ((err = uv_listen((uv_stream_t*)tcp, listen_backlog, _uv_on_connect_cb))) {
                             fprintf(stderr, "uv_listen() %s\n", uv_strerror(err));
                             return 1;
                         }
