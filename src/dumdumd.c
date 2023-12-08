@@ -100,7 +100,7 @@ static void usage(void)
         "  -R            Use SO_REUSEPORT on sockets\n"
         "  -L <sec>      Use SO_LINGER with the given seconds\n"
         "  -r            Reflect data back to sender (Only in uv)\n"
-        "  -Q            Use specified listen() queue size\n",
+        "  -Q <num>      Use specified listen() queue size\n"
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n",
         program_name);
@@ -825,9 +825,6 @@ int main(int argc, char* argv[])
             if (listen_backlog < 1) {
                 usage();
                 return 2;
-            }
-            if (listen_backlog > 128) {
-                fprintf(stderr, "warning: make sure your kernel is configured for listen backlog %d\n", listen_backlog);
             }
             break;
 

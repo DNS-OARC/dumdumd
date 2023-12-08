@@ -887,7 +887,7 @@ static void usage(void)
         "usage: dumdohd [options] <port> <key.pem> <cert.pem>\n"
         /* -o            description                                                 .*/
         "  -D <num>      Do random disconnect on receive, 0-100 (percent)\n"
-        "  -Q            Use specified listen() queue size\n",
+        "  -Q <num>      Use specified listen() queue size\n"
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n");
 }
@@ -918,16 +918,13 @@ int main(int argc, char** argv)
             version();
             return 0;
 
-	case 'Q':
-	    listen_backlog = atoi(optarg);
-	    if (listen_backlog < 1) {
-	        usage();
-	        return 2;
-	    }
-	    if (listen_backlog > 128) {
-	        fprintf(stderr, "warning: make sure your kernel is configured for listen backlog %d\n", listen_backlog);
-	    }
-	    break;
+        case 'Q':
+            listen_backlog = atoi(optarg);
+            if (listen_backlog < 1) {
+                usage();
+                return 2;
+            }
+            break;
 
         default:
             usage();
