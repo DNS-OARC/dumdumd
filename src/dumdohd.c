@@ -31,6 +31,7 @@
 #include <nghttp2/nghttp2.h>
 
 int                random_disconnect   = 0;
+int                listen_backlog      = 10;
 unsigned long long random_disconnected = 0, random_disconnect_checks = 0;
 
 #define OUTPUT_WOULDBLOCK_THRESHOLD (1 << 16)
@@ -844,7 +845,7 @@ static void start_listen(struct event_base* evbase, const char* service,
         struct evconnlistener* listener;
         listener = evconnlistener_new_bind(
             evbase, acceptcb, app_ctx, LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
-            16, rp->ai_addr, (int)rp->ai_addrlen);
+            listen_backlog, rp->ai_addr, (int)rp->ai_addrlen);
         if (listener) {
             freeaddrinfo(res);
 
@@ -886,6 +887,7 @@ static void usage(void)
         "usage: dumdohd [options] <port> <key.pem> <cert.pem>\n"
         /* -o            description                                                 .*/
         "  -D <num>      Do random disconnect on receive, 0-100 (percent)\n"
+        "  -Q <num>      Use specified listen() queue size\n"
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n");
 }
@@ -898,7 +900,7 @@ static void version(void)
 int main(int argc, char** argv)
 {
     int opt;
-    while ((opt = getopt(argc, argv, "D:hV")) != -1) {
+    while ((opt = getopt(argc, argv, "D:hVQ:")) != -1) {
         switch (opt) {
         case 'D':
             random_disconnect = atoi(optarg);
@@ -915,6 +917,14 @@ int main(int argc, char** argv)
         case 'V':
             version();
             return 0;
+
+        case 'Q':
+            listen_backlog = atoi(optarg);
+            if (listen_backlog < 1) {
+                usage();
+                return 2;
+            }
+            break;
 
         default:
             usage();
