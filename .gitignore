@@ -41,6 +41,7 @@ compile
 config.guess
 config.sub
 configure
+configure~
 depcomp
 install-sh
 ltmain.sh
@@ -65,4 +66,5 @@ src/stamp-h1
 build
 
 # Project specific files
+src/dumdohd
 src/dumdumd

@@ -1,11 +1,16 @@
 # dumdumd
 
-High performance UDP/TCP server that... just drops everything you send to it
+High performance UDP/TCP server that... just drops/reflects everything you send to it
 
 ## Requirements
 
+`dumdumd` requires a couple of libraries beside a normal C compiling
+environment with autoconf, automake, libtool and pkgconfig.
+
 - libev-dev || libuv1-dev
 - libssl-dev
+- libevent-dev
+- libnghttp2-dev
 
 ## Build
 
@@ -21,13 +26,26 @@ make
 src/dumdumd -h
 ```
 
+## Docker usage
+
+```
+docker build -t dumdumd .
+docker run -ti --init --network=host dumdumd -h
+```
+
+Optional parameter `--network=host` disables Docker networking.
+This improves performance when testing over physical network interfaces.
+
+Optional parameters `-ti --init` make terminal work as you would expect,
+namely SIGINT from Control+C gets propagated to dumdumd.
+
 ## Author(s)
 
 Jerry Lundström <jerry@dns-oarc.net>
 
 ## Copyright
 
-Copyright (c) 2017-2021, OARC, Inc.
+Copyright (c) 2017-2023, OARC, Inc.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published
