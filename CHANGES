@@ -1,3 +1,33 @@
+2023-12-08 Jerry Lundström
+
+    Release 1.3.0
+
+    New stuff:
+    - Add `dumdohd`, reflect DNS-over-HTTPS using nghttp2 example server
+    - Add `-Q <num>` to set listen backlog
+    - Dockerfile
+    - Add clang-format and format code
+
+    Bugfixes and tweaks:
+    - Update README about compiling environment
+    - Fix #20: Flush stdout on stats
+    - `dumdohd`: Remove deprecated OpenSSL functions
+    - `dumdumd`: Ignore SIGPIPE, can happen during `BIO_write()`
+
+    404fd43 listen backlog
+    888676b Make listen backlog configurable
+    28a7a29 Split Dockerfile to build and runtime phases to cut down image size
+    097686f Add dumdohd to .gitignore
+    9f01560 Dockerfile
+    196fcc1 OpenSSL 3.0, SIGPIPE
+    98e962a DoH
+    c2c8bf3 DoH random goaway
+    a738383 DoH
+    5683124 Dockerfile
+    b33675c Flush stdout
+    4acb0bd README
+    b8f3e4d Fix changelog
+
 2021-04-06 Jerry Lundström
 
     Release 1.2.0

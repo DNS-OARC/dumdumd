@@ -1,6 +1,6 @@
 # dumdumd
 
-High performance UDP/TCP server that... just drops everything you send to it
+High performance UDP/TCP server that... just drops/reflects everything you send to it
 
 ## Requirements
 
@@ -45,7 +45,7 @@ Jerry Lundström <jerry@dns-oarc.net>
 
 ## Copyright
 
-Copyright (c) 2017-2021, OARC, Inc.
+Copyright (c) 2017-2023, OARC, Inc.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published
