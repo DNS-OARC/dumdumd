@@ -82,6 +82,8 @@ int                random_disconnect      = 0;
 int                listen_backlog         = 10;
 unsigned long long random_disconnected = 0, random_disconnect_checks = 0;
 
+int track_dns_message = 0, flip_qr_bit = 0;
+
 static void usage(void)
 {
     printf(
@@ -101,8 +103,18 @@ static void usage(void)
         "  -L <sec>      Use SO_LINGER with the given seconds\n"
         "  -r            Reflect data back to sender (Only in uv)\n"
         "  -Q <num>      Use specified listen() queue size\n"
+        "  -o <opt>      Enable special options/features, see -H\n"
         "  -h            Print this help and exit\n"
+        "  -H            Print help about special options/features and exit\n"
         "  -V            Print version and exit\n",
+        program_name);
+}
+
+static void usage2(void)
+{
+    printf(
+        "usage: %s .. -o <opt> ..\n"
+        "  flip-qr-bit: Track DNS messages and flip the QR bit\n",
         program_name);
 }
 
@@ -256,6 +268,14 @@ static void _ev_accept_cb(struct ev_loop* loop, ev_io* w, int revents)
 #endif
 
 #ifdef HAVE_LIBUV
+
+typedef struct _uv_tcp_t {
+    uv_tcp_t handle;
+
+    // track dns message
+    size_t dnslen, have_dnslen, had;
+} _uv_tcp_t;
+
 static void _uv_stats_cb(uv_timer_t* w)
 {
     stats_cb();
@@ -338,6 +358,17 @@ static void _uv_udp_recv_reflect_cb(uv_udp_t* handle, ssize_t nread, const uv_bu
 
     _stats.pkts++;
     _stats.bytes += nread;
+
+    if (flip_qr_bit) {
+        // flip QR bit
+        if (nread > 2) {
+            if ((buf->base[2] & 0x80)) {
+                buf->base[2] &= 0x7f;
+            } else {
+                buf->base[2] |= 0x80;
+            }
+        }
+    }
 
     uv_udp_recv_stop(handle);
 
@@ -461,6 +492,73 @@ static void _uv_tcp_send_cb(uv_write_t* req, int status)
     }
     _buf_add(((write_req_t*)req)->buf.base);
     _req_add(req);
+}
+
+static void _track_dns_message(_uv_tcp_t* handle, ssize_t nread, const uv_buf_t* buf)
+{
+    size_t i = 0;
+
+    while (i < nread) {
+        if (handle->had) {
+            if (handle->had < 3) {
+
+                if (flip_qr_bit) {
+                    // flip QR bit
+                    if ((nread - i) > 2 - handle->had) {
+                        if ((buf->base[i + 2 - handle->had] & 0x80)) {
+                            buf->base[i + 2 - handle->had] &= 0x7f;
+                        } else {
+                            buf->base[i + 2 - handle->had] |= 0x80;
+                        }
+                    }
+                }
+            }
+
+            // check if what we had and what's left can fulfill message
+            if (handle->had + (nread - i) > handle->dnslen) {
+                i += handle->dnslen - handle->had;
+                handle->had         = 0;
+                handle->dnslen      = 0;
+                handle->have_dnslen = 0;
+                continue;
+            }
+
+            handle->had += nread - i;
+            break;
+        }
+
+        if (!handle->have_dnslen) {
+            handle->dnslen      = buf->base[i++] << 8;
+            handle->have_dnslen = 1;
+            continue;
+        } else if (handle->have_dnslen == 1) {
+            handle->dnslen |= buf->base[i++];
+            handle->have_dnslen = 2;
+            continue;
+        }
+
+        if (flip_qr_bit) {
+            // flip QR bit
+            if ((nread - i) > 2) {
+                if ((buf->base[i + 2] & 0x80)) {
+                    buf->base[i + 2] &= 0x7f;
+                } else {
+                    buf->base[i + 2] |= 0x80;
+                }
+            }
+        }
+
+        // check if full message in buffer and advance if so
+        if ((nread - i) > handle->dnslen) {
+            i += handle->dnslen;
+            handle->dnslen      = 0;
+            handle->have_dnslen = 0;
+            continue;
+        }
+
+        handle->had = nread - i;
+        break;
+    }
 }
 
 static void _uv_tcp_recv_reflect_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf)
@@ -596,6 +694,11 @@ static void _uv_tcp_recv_reflect_cb(uv_stream_t* handle, ssize_t nread, const uv
         _buf_add(buf->base);
         return;
     }
+
+    if (track_dns_message) {
+        _track_dns_message((_uv_tcp_t*)handle, nread, buf);
+    }
+
     req->buf = uv_buf_init(buf->base, nread);
     uv_write((uv_write_t*)req, handle, &req->buf, 1, _uv_tcp_send_cb);
 }
@@ -610,7 +713,7 @@ static void _uv_on_connect_reflect_cb(uv_stream_t* server, int status)
         return;
     }
 
-    tcp = calloc(1, sizeof(uv_tcp_t));
+    tcp = calloc(1, sizeof(_uv_tcp_t));
     if ((err = uv_tcp_init(uv_default_loop(), tcp))) {
         fprintf(stderr, "uv_tcp_init() %s\n", uv_strerror(err));
         free(tcp);
@@ -702,6 +805,10 @@ static void _uv_on_connect_reflect_cb(uv_stream_t* server, int status)
                     return;
                 }
 
+                if (track_dns_message) {
+                    _track_dns_message((_uv_tcp_t*)tcp, nread, &buf);
+                }
+
                 req->buf = uv_buf_init(buf.base, nread);
                 uv_write((uv_write_t*)req, (uv_stream_t*)tcp, &req->buf, 1, _uv_tcp_send_cb);
                 _stats.accept++;
@@ -745,7 +852,7 @@ int main(int argc, char* argv[])
         program_name = argv[0];
     }
 
-    while ((opt = getopt(argc, argv, "B:utTCD:ARL:rhVQ:")) != -1) {
+    while ((opt = getopt(argc, argv, "B:utTCD:ARL:rhHVQ:o:")) != -1) {
         switch (opt) {
         case 'B':
             if (!strcmp(optarg, "ev")) {
@@ -816,6 +923,10 @@ int main(int argc, char* argv[])
             usage();
             return 0;
 
+        case 'H':
+            usage2();
+            return 0;
+
         case 'V':
             version();
             return 0;
@@ -827,6 +938,16 @@ int main(int argc, char* argv[])
                 return 2;
             }
             break;
+
+        case 'o':
+            if (!strcmp(optarg, "flip-qr-bit")) {
+                track_dns_message = 1;
+                flip_qr_bit       = 1;
+                printf("flipping QR bit\n");
+                break;
+            }
+            fprintf(stderr, "unknown option: %s\n", optarg);
+            // fallthrough
 
         default:
             usage();
