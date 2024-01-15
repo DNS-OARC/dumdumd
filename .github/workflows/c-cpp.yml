@@ -13,6 +13,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install libev-dev libuv1-dev libssl-dev libevent-dev libnghttp2-dev
     - name: configure
       run: sh autogen.sh && mkdir -p build && cd build && ../configure --enable-warn-all
     - name: make
