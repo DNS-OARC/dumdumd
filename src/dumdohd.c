@@ -32,6 +32,7 @@
 
 int                random_disconnect   = 0;
 int                listen_backlog      = 10;
+int                conn_flags          = 0;
 unsigned long long random_disconnected = 0, random_disconnect_checks = 0;
 
 #define OUTPUT_WOULDBLOCK_THRESHOLD (1 << 16)
@@ -844,7 +845,7 @@ static void start_listen(struct event_base* evbase, const char* service,
     for (rp = res; rp; rp = rp->ai_next) {
         struct evconnlistener* listener;
         listener = evconnlistener_new_bind(
-            evbase, acceptcb, app_ctx, LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
+            evbase, acceptcb, app_ctx, LEV_OPT_CLOSE_ON_FREE | conn_flags,
             listen_backlog, rp->ai_addr, (int)rp->ai_addrlen);
         if (listener) {
             freeaddrinfo(res);
@@ -887,6 +888,8 @@ static void usage(void)
         "usage: dumdohd [options] <port> <key.pem> <cert.pem>\n"
         /* -o            description                                                 .*/
         "  -D <num>      Do random disconnect on receive, 0-100 (percent)\n"
+        "  -A            Use LEV_OPT_REUSEABLE on sockets\n"
+        "  -R            Use LEV_OPT_REUSEABLE_PORT on sockets\n"
         "  -Q <num>      Use specified listen() queue size\n"
         "  -h            Print this help and exit\n"
         "  -V            Print version and exit\n");
@@ -900,7 +903,7 @@ static void version(void)
 int main(int argc, char** argv)
 {
     int opt;
-    while ((opt = getopt(argc, argv, "D:hVQ:")) != -1) {
+    while ((opt = getopt(argc, argv, "D:ARhVQ:")) != -1) {
         switch (opt) {
         case 'D':
             random_disconnect = atoi(optarg);
@@ -908,6 +911,14 @@ int main(int argc, char** argv)
                 usage();
                 return 2;
             }
+            break;
+
+        case 'A':
+            conn_flags |= LEV_OPT_REUSEABLE;
+            break;
+
+        case 'R':
+            conn_flags |= LEV_OPT_REUSEABLE_PORT;
             break;
 
         case 'h':
