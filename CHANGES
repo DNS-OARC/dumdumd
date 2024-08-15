@@ -1,3 +1,18 @@
+2024-08-15 Jerry Lundström
+
+    Release 1.4.0
+
+    New stuff:
+    - Add `-o flip-qr-bit` to flip the QR bit when reflecting
+    - Add `-A`/`-R` (reuse addr/port) to `dumdohd`
+
+    8081261 flip QR bit in DoH
+    cdc7b8f DoH reuse addr/port
+    732a8a6 Update c-cpp.yml
+    9c42fae Update c-cpp.yml
+    aa6ee6a Create c-cpp.yml
+    59b68e6 Track DNS, flip QR bit
+
 2023-12-08 Jerry Lundström
 
     Release 1.3.0
