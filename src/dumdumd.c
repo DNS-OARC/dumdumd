@@ -1,6 +1,6 @@
 /*
  * dumdumd - packets sent lightning fast to dev null
- * Copyright (c) 2017-2023, OARC, Inc.
+ * Copyright (c) 2017-2024 OARC, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
