@@ -33,6 +33,7 @@
 int                random_disconnect   = 0;
 int                listen_backlog      = 10;
 int                conn_flags          = 0;
+int                flip_qr_bit         = 0;
 unsigned long long random_disconnected = 0, random_disconnect_checks = 0;
 
 #define OUTPUT_WOULDBLOCK_THRESHOLD (1 << 16)
@@ -614,6 +615,17 @@ static int on_request_recv(nghttp2_session* session,
         }
     }
 
+    if (flip_qr_bit) {
+        // flip QR bit
+        if (stream_data->datalen > 2) {
+            if ((stream_data->data[2] & 0x80)) {
+                stream_data->data[2] &= 0x7f;
+            } else {
+                stream_data->data[2] |= 0x80;
+            }
+        }
+    }
+
     if (send_response(session, stream_data->stream_id, hdrs, ARRLEN(hdrs)) != 0) {
         // close(fd);
         return NGHTTP2_ERR_CALLBACK_FAILURE;
@@ -891,8 +903,17 @@ static void usage(void)
         "  -A            Use LEV_OPT_REUSEABLE on sockets\n"
         "  -R            Use LEV_OPT_REUSEABLE_PORT on sockets\n"
         "  -Q <num>      Use specified listen() queue size\n"
+        "  -o <opt>      Enable special options/features, see -H\n"
         "  -h            Print this help and exit\n"
+        "  -H            Print help about special options/features and exit\n"
         "  -V            Print version and exit\n");
+}
+
+static void usage2(void)
+{
+    printf(
+        "usage: dumdohd .. -o <opt> ..\n"
+        "  flip-qr-bit: Track DNS messages and flip the QR bit\n");
 }
 
 static void version(void)
@@ -903,7 +924,7 @@ static void version(void)
 int main(int argc, char** argv)
 {
     int opt;
-    while ((opt = getopt(argc, argv, "D:ARhVQ:")) != -1) {
+    while ((opt = getopt(argc, argv, "D:ARo:hHVQ:")) != -1) {
         switch (opt) {
         case 'D':
             random_disconnect = atoi(optarg);
@@ -925,6 +946,10 @@ int main(int argc, char** argv)
             usage();
             return 0;
 
+        case 'H':
+            usage2();
+            return 0;
+
         case 'V':
             version();
             return 0;
@@ -936,6 +961,15 @@ int main(int argc, char** argv)
                 return 2;
             }
             break;
+
+        case 'o':
+            if (!strcmp(optarg, "flip-qr-bit")) {
+                flip_qr_bit = 1;
+                printf("flipping QR bit\n");
+                break;
+            }
+            fprintf(stderr, "unknown option: %s\n", optarg);
+            // fallthrough
 
         default:
             usage();
