@@ -1,3 +1,5 @@
+# NOTE: Moved to https://codeberg.org/DNS-OARC/dumdumd
+
 # dumdumd
 
 High performance UDP/TCP server that... just drops/reflects everything you send to it
